@@ -4,11 +4,7 @@ const Drop = require('../models/Drop');
 const upload = require('../middleware/upload');
 const generateUniqueCode = require('../utils/codeGenerator');
 const bruteForceProtection = require('../middleware/bruteForce');
-const DOMPurify = require('dompurify');
-const { JSDOM } = require('jsdom');
-
-const window = new JSDOM('').window;
-const purify = DOMPurify(window);
+const sanitizeHtml = require('sanitize-html');
 
 // ────────────────────────────────────────────
 // POST /api/drops/text — Create a text drop
@@ -25,8 +21,11 @@ router.post('/text', async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'Text exceeds 50 000 character limit.' });
         }
 
-        // Sanitize input to prevent XSS
-        const sanitizedText = purify.sanitize(text.trim());
+        // Sanitize input to prevent XSS (strip all HTML tags safely)
+        const sanitizedText = sanitizeHtml(text.trim(), {
+            allowedTags: [],
+            allowedAttributes: {}
+        });
 
         const code = await generateUniqueCode();
 
