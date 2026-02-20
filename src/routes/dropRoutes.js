@@ -42,48 +42,46 @@ router.post('/text', async (req, res, next) => {
 });
 
 // ────────────────────────────────────────────
-// POST /api/drops/file — Upload a file drop
+// POST /api/drops/file — Upload file(s)
 // ────────────────────────────────────────────
-router.post('/file', upload.single('file'), async (req, res, next) => {
+router.post('/file', upload.array('files', 10), async (req, res, next) => {
     try {
-        if (!req.file) {
-            return res.status(400).json({ success: false, message: 'A file is required.' });
+        if (!req.files || req.files.length === 0) {
+            return res.status(400).json({ success: false, message: 'At least one file is required.' });
         }
 
-        // Validate Magic Numbers (Buffer Signature)
+        // Validate Magic Numbers for all files
         const fileType = require('file-type');
-        const bufferInfo = await fileType.fromBuffer(req.file.buffer);
+        const processedFiles = [];
 
-        // ALLOWED_MIME_TYPES from upload.js logic repeated here for exact buffer match
-        // Note: Some text files (csv, txt, html) don't have magic numbers and return null
-        if (bufferInfo) {
-            const allowedUploads = [
-                'application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'image/webp',
-                'application/zip', 'application/x-rar-compressed', 'application/gzip',
-                'application/json', 'application/xml' // partial list based on common binary/structured formats
-            ];
+        for (const file of req.files) {
+            const bufferInfo = await fileType.fromBuffer(file.buffer);
 
-            // If it has a magic number, verify it's one we allow or matches the multer mimetype roughly
-            // Because file-type doesn't cover all text mimetypes, we only reject if it's a known restricted binary
-            const isExecutable = bufferInfo.mime.startsWith('application/x-msdownload') ||
-                bufferInfo.mime.startsWith('application/x-executable');
+            if (bufferInfo) {
+                const isExecutable = bufferInfo.mime.startsWith('application/x-msdownload') ||
+                    bufferInfo.mime.startsWith('application/x-executable');
 
-            if (isExecutable) {
-                return res.status(400).json({ success: false, message: 'Executable files are not allowed.' });
+                if (isExecutable) {
+                    return res.status(400).json({ success: false, message: 'Executable files are not allowed.' });
+                }
             }
+
+            // Sanitize filename
+            const safeFileName = file.originalname.replace(/[^a-zA-Z0-9.\-_]/g, '_');
+
+            processedFiles.push({
+                fileName: safeFileName,
+                fileMimeType: file.mimetype,
+                fileData: file.buffer
+            });
         }
 
         const code = await generateUniqueCode();
 
-        // Sanitize filename
-        const safeFileName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
-
         await Drop.create({
             code,
             type: 'file',
-            fileName: safeFileName,
-            fileMimeType: req.file.mimetype,
-            fileData: req.file.buffer,
+            files: processedFiles
         });
 
         res.status(201).json({ success: true, code });
@@ -125,12 +123,45 @@ router.get('/:code', bruteForceProtection, async (req, res, next) => {
         }
 
         // File drop — send as download
-        res.set({
-            'Content-Type': drop.fileMimeType,
-            'Content-Disposition': `attachment; filename="${encodeURIComponent(drop.fileName)}"`,
-            'Content-Length': drop.fileData.length,
-        });
-        return res.send(drop.fileData);
+        if (drop.files && drop.files.length === 1) {
+            // Single file
+            const file = drop.files[0];
+            res.set({
+                'Content-Type': file.fileMimeType,
+                'Content-Disposition': `attachment; filename="${encodeURIComponent(file.fileName)}"`,
+                'Content-Length': file.fileData.length,
+            });
+            return res.send(file.fileData);
+        } else if (drop.files && drop.files.length > 1) {
+            // Multiple files -> ZIP archive
+            const archiver = require('archiver');
+
+            res.set({
+                'Content-Type': 'application/zip',
+                'Content-Disposition': `attachment; filename="shadowdrop-${code}.zip"`
+            });
+
+            const archive = archiver('zip', {
+                zlib: { level: 9 } // maximum compression
+            });
+
+            archive.on('error', function (err) {
+                throw err;
+            });
+
+            // Pipe archive data to the response
+            archive.pipe(res);
+
+            // Append each file buffer to the archive
+            drop.files.forEach(file => {
+                archive.append(file.fileData, { name: file.fileName });
+            });
+
+            await archive.finalize();
+            return;
+        } else {
+            return res.status(404).json({ success: false, message: 'Files not found in drop.' });
+        }
     } catch (error) {
         next(error);
     }

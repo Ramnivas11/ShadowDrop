@@ -20,9 +20,11 @@ const dropSchema = new mongoose.Schema({
         maxlength: 50000, // 50 KB of text
     },
     // --- File drops ---
-    fileName: String,
-    fileMimeType: String,
-    fileData: Buffer,
+    files: [{
+        fileName: String,
+        fileMimeType: String,
+        fileData: Buffer,
+    }],
     // --- Metadata ---
     createdAt: {
         type: Date,

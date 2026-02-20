@@ -32,7 +32,7 @@
     const resultCard = $('#resultCard');
     const toastContainer = $('#toastContainer');
 
-    let selectedFile = null;
+    let selectedFiles = [];
 
     // ─── Tabs ────────────────────────────────
     tabs.forEach((tab) => {
@@ -85,7 +85,7 @@
             e.preventDefault();
             dropzone.classList.remove('drag-over');
             if (e.dataTransfer.files.length > 0) {
-                handleFileSelect(e.dataTransfer.files[0]);
+                handleFileSelect(Array.from(e.dataTransfer.files));
             }
         });
     }
@@ -93,29 +93,45 @@
     if (fileInput) {
         fileInput.addEventListener('change', () => {
             if (fileInput.files.length > 0) {
-                handleFileSelect(fileInput.files[0]);
+                handleFileSelect(Array.from(fileInput.files));
             }
         });
     }
 
     if (btnClearFile) btnClearFile.addEventListener('click', clearFile);
 
-    function handleFileSelect(file) {
-        const maxSize = 10 * 1024 * 1024; // 10 MB
-        if (file.size > maxSize) {
-            showToast('File exceeds 10 MB limit.', 'error');
+    function handleFileSelect(files) {
+        const maxSize = 25 * 1024 * 1024; // 25 MB total limit natively
+
+        let totalSize = 0;
+        files.forEach(f => totalSize += f.size);
+
+        if (totalSize > maxSize) {
+            showToast('Total file size exceeds 25 MB limit.', 'error');
             return;
         }
-        selectedFile = file;
-        fileNameEl.textContent = file.name;
-        fileSizeEl.textContent = formatBytes(file.size);
+
+        if (files.length > 10) {
+            showToast('You can only upload up to 10 files at once.', 'error');
+            return;
+        }
+
+        selectedFiles = files;
+
+        if (files.length === 1) {
+            fileNameEl.textContent = files[0].name;
+        } else {
+            fileNameEl.textContent = `${files.length} files selected`;
+        }
+
+        fileSizeEl.textContent = formatBytes(totalSize);
         fileInfo.classList.remove('hidden');
         dropzone.classList.add('hidden');
         btnShareFile.disabled = false;
     }
 
     function clearFile() {
-        selectedFile = null;
+        selectedFiles = [];
         fileInput.value = '';
         fileInfo.classList.add('hidden');
         dropzone.classList.remove('hidden');
@@ -174,18 +190,30 @@
     // ─── Share File ──────────────────────────
     if (btnShareFile) {
         btnShareFile.addEventListener('click', async () => {
-            if (!selectedFile) return;
+            if (selectedFiles.length === 0) return;
 
             setLoading(btnShareFile, true);
 
             try {
                 const formData = new FormData();
-                formData.append('file', selectedFile);
+                selectedFiles.forEach(file => {
+                    formData.append('files', file); // changed from 'file' to 'files' as per multiple schema
+                });
 
                 const res = await fetch('/api/drops/file', {
                     method: 'POST',
                     body: formData,
                 });
+
+                // Handle Vercel's strict 413 Payload Too Large HTML response
+                const contentType = res.headers.get('content-type');
+                if (contentType && contentType.includes('text/html')) {
+                    if (res.status === 413) {
+                        throw new Error('Vercel limit reached: Total file size exceeds strict 4.5MB Serverless limit.');
+                    }
+                    throw new Error(`Server returned HTML error (${res.status}).`);
+                }
+
                 const data = await res.json();
 
                 if (!res.ok) throw new Error(data.message || 'Upload failed.');

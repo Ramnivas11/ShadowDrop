@@ -18,6 +18,11 @@ const ALLOWED_MIME_TYPES = [
     'application/zip',
     'application/x-rar-compressed',
     'application/gzip',
+    // Videos
+    'video/mp4',
+    'video/webm',
+    'video/ogg',
+    'video/quicktime',
     // Code / data
     'application/json',
     'application/xml',
@@ -28,7 +33,7 @@ const ALLOWED_MIME_TYPES = [
     'application/javascript',
 ];
 
-const maxSize = parseInt(process.env.MAX_FILE_SIZE || '10485760'); // 10 MB default
+const maxSize = parseInt(process.env.MAX_FILE_SIZE || '26214400'); // 25 MB default
 
 const storage = multer.memoryStorage();
 
