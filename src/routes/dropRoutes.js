@@ -52,7 +52,7 @@ router.post('/file', upload.single('file'), async (req, res, next) => {
 
         // Validate Magic Numbers (Buffer Signature)
         const fileType = require('file-type');
-        const bufferInfo = await fileType.fileTypeFromBuffer(req.file.buffer);
+        const bufferInfo = await fileType.fromBuffer(req.file.buffer);
 
         // ALLOWED_MIME_TYPES from upload.js logic repeated here for exact buffer match
         // Note: Some text files (csv, txt, html) don't have magic numbers and return null
